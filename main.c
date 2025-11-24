@@ -215,7 +215,10 @@ void cadastrarCategoria();
 void editarCategoria();
 void removerCategoria();
 void listarCategorias();
-int buscarCategoriaPorId(int id, Categoria *out, long *index);
+int buscarCategoriaPorId(int id, Categoria *out, int *index);
+void listarAtivarCategoriasInativas();
+int categoriaExistePorNome(const char *nome);
+
 
 /* Utilitários de I/O do menu */
 void limparBuffer();
@@ -537,6 +540,7 @@ void menuCategorias() {
         printf("2) Editar Categoria\n");
         printf("3) Remover Categoria\n");
         printf("4) Listar Categorias\n");
+        printf("5) Listar e restaurar [Registros Inativos]\n");
         printf("0) Voltar\n");
         op = lerInt("Opcao: ");
         switch (op) {
@@ -544,6 +548,7 @@ void menuCategorias() {
             case 2: editarCategoria(); break;
             case 3: removerCategoria(); break;
             case 4: listarCategorias(); pauseAndContinue(); break;
+            case 5: listarAtivarCategoriasInativas(); break;
             case 0: return;
             default: printf("Opcao invalida!\n"); pauseAndContinue(); break;
         }
@@ -1222,7 +1227,6 @@ void removerLaboratorio() {
     pauseAndContinue();
 }
 
-
 void listarAtivarLaboratoriosInativos() {
     FILE *f = fopen(ARQ_LABS, "r+b");
     if (!f) {
@@ -1388,8 +1392,306 @@ int laboratorioTemProdutosVinculados(int id_lab) {
 }
 
 /* Categorias */
-void cadastrarCategoria() { printf("[STUB] cadastrarCategoria()\n"); }
-void editarCategoria()    { printf("[STUB] editarCategoria()\n"); }
-void removerCategoria()   { printf("[STUB] removerCategoria()\n"); }
-void listarCategorias()   { printf("[STUB] listarCategorias()\n"); }
-int buscarCategoriaPorId(int id, Categoria *out, long *index) { (void)id; (void)out; (void)index; return 1; }
+int categoriaExistePorNome(const char *nome) {
+    FILE *f = fopen(ARQ_CATS, "rb");
+    if (!f) return 0;
+
+    FileHeader h;
+    fread(&h, sizeof(FileHeader), 1, f);
+
+    Categoria c;
+    while (fread(&c, sizeof(Categoria), 1, f) == 1) {
+        if (c.ativo && stricmp(c.nome, nome) == 0) {
+            fclose(f);
+            return 1; // Já existe
+        }
+    }
+
+    fclose(f);
+    return 0;
+}
+
+void cadastrarCategoria() {
+    Categoria c;
+
+    printf("\n--- CADASTRAR CATEGORIA ---\n");
+    lerString("Nome: ", c.nome, MAX_NOME);
+    lerString("Descricao: ", c.descricao, MAX_DESC);
+
+    if (categoriaExistePorNome(c.nome)) {
+        printf("Erro: Ja existe categoria com esse nome!\n");
+        pauseAndContinue();
+        return;
+    }
+
+    FileHeader h;
+    read_header(ARQ_CATS, &h);
+
+    c.id = h.last_id++;
+    c.ativo = 1;
+
+    FILE *f = fopen(ARQ_CATS, "r+b");
+    fseek(f, 0, SEEK_SET);
+    fwrite(&h, sizeof(FileHeader), 1, f);
+
+    fseek(f, 0, SEEK_END);
+    fwrite(&c, sizeof(Categoria), 1, f);
+
+    fclose(f);
+
+    printf("Categoria cadastrada com ID %d!\n", c.id);
+    pauseAndContinue();
+}
+
+int buscarCategoriaPorId(int id, Categoria *out, int *index) {
+    FILE *f = fopen(ARQ_CATS, "rb");
+    if (!f) return 1;
+
+    FileHeader h;
+    fread(&h, sizeof(FileHeader), 1, f);
+
+    Categoria c;
+    int idx = 0;
+
+    while (fread(&c, sizeof(Categoria), 1, f) == 1) {
+        if (c.id == id && c.ativo) {
+            if (out) *out = c;
+            if (index) *index = idx;
+
+            fclose(f);
+            return 0;
+        }
+        idx++;
+    }
+
+    fclose(f);
+    return 1;
+}
+
+void listarCategorias() {
+    FILE *f = fopen(ARQ_CATS, "rb");
+    if (!f) {
+        printf("Erro ao abrir arquivo de categorias.\n");
+        pauseAndContinue();
+        return;
+    }
+
+    FileHeader h;
+    fread(&h, sizeof(FileHeader), 1, f);
+
+    Categoria c;
+    int encontrou = 0;
+
+    printf("\n--- LISTAGEM DE CATEGORIAS ---\n");
+
+    while (fread(&c, sizeof(Categoria), 1, f) == 1) {
+        if (c.ativo) {
+            encontrou = 1;
+            printf("ID: %d | Nome: %s | Descricao: %s\n",
+                   c.id, c.nome, c.descricao);
+        }
+    }
+
+    if (!encontrou)
+        printf("Nenhuma categoria cadastrada.\n");
+
+    fclose(f);
+    pauseAndContinue();
+}
+
+void editarCategoria() {
+    int id = lerInt("ID da categoria que deseja editar: ");
+
+    Categoria c;
+    int idx;
+
+    if (buscarCategoriaPorId(id, &c, &idx)) {
+        printf("Categoria nao encontrada!\n");
+        pauseAndContinue();
+        return;
+    }
+
+    printf("\n--- REGISTRO ENCONTRADO ---\n");
+    printf("ID: %d\nNome atual: %s\nDescricao atual: %s\n",
+           c.id, c.nome, c.descricao);
+    
+    printf("\nDeseja realmente editar essa categoria? (S/N): ");
+    char resp;
+    scanf(" %c", &resp);
+    limparBuffer();
+    if (resp != 'S' && resp != 's') {
+        printf("Edicao cancelada.\n");
+        pauseAndContinue();
+        return;
+    }
+    
+    char novoNome[MAX_NOME];
+    char novaDesc[MAX_DESC];
+
+    lerString("Novo nome (ENTER para manter): ", novoNome, MAX_NOME);
+    lerString("Nova descricao (ENTER para manter): ", novaDesc, MAX_DESC);
+
+    if (strlen(novoNome) > 0) {
+        if (!stricmp(novoNome, c.nome) == 0 && categoriaExistePorNome(novoNome)) {
+            printf("Erro: Ja existe categoria com esse nome!\n");
+            pauseAndContinue();
+            return;
+        }
+        strcpy(c.nome, novoNome);
+    }
+
+    if (strlen(novaDesc) > 0)
+        strcpy(c.descricao, novaDesc);
+
+    FILE *f = fopen(ARQ_CATS, "r+b");
+
+    int pos = sizeof(FileHeader) + (int)idx * sizeof(Categoria);
+    fseek(f, pos, SEEK_SET);
+    fwrite(&c, sizeof(Categoria), 1, f);
+
+    fclose(f);
+
+    printf("Categoria atualizada!\n");
+    pauseAndContinue();
+}
+
+void removerCategoria() {
+    int id = lerInt("ID da categoria a remover: ");
+
+    Categoria c;
+    int idx;
+
+    if (buscarCategoriaPorId(id, &c, &idx)) {
+        printf("Categoria nao encontrada!\n");
+        pauseAndContinue();
+        return;
+    }
+
+    printf("\n--- REGISTRO ENCONTRADO ---\n");
+    printf("ID: %d\nNome: %s\nDescricao: %s\n",
+           c.id, c.nome, c.descricao);
+
+    printf("\nDeseja realmente excluir (S/N)? ");
+    char resp;
+    scanf(" %c", &resp);
+    limparBuffer();
+
+    if (resp != 'S' && resp != 's') {
+        printf("Exclusao cancelada.\n");
+        pauseAndContinue();
+        return;
+    }
+
+    c.ativo = 0;
+
+    FILE *f = fopen(ARQ_CATS, "r+b");
+
+    int pos = sizeof(FileHeader) + (int)idx * sizeof(Categoria);
+    fseek(f, pos, SEEK_SET);
+    fwrite(&c, sizeof(Categoria), 1, f);
+
+    fclose(f);
+
+    printf("Categoria removida!\n");
+    pauseAndContinue();
+}
+
+void listarAtivarCategoriasInativas() {
+    FILE *f = fopen(ARQ_CATS, "r+b");
+    if (!f) {
+        printf("Erro ao abrir arquivo de categorias.\n");
+        pauseAndContinue();
+        return;
+    }
+
+    FileHeader h;
+    fread(&h, sizeof(FileHeader), 1, f);
+
+    Categoria c;
+    int idx = 0, encontrou = 0;
+
+    printf("\n--- CATEGORIAS INATIVAS ---\n");
+
+    while (fread(&c, sizeof(Categoria), 1, f) == 1) {
+        if (!c.ativo) {
+            encontrou = 1;
+            printf("ID: %d | Nome: %s | Descricao: %s\n",
+                   c.id, c.nome, c.descricao);
+        }
+        idx++;
+    }
+
+    if (!encontrou) {
+        printf("Nenhuma categoria inativa encontrada.\n");
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
+
+    printf("\n1) Ativar um especifico\n2) Ativar todos\n0) Cancelar\n");
+    int op = lerInt("Opcao: ");
+
+    if (op == 0) { fclose(f); return; }
+
+    // ---- Ativar um ----
+    if (op == 1) {
+        int id = lerInt("ID da categoria a ativar: ");
+
+        rewind(f); fread(&h, sizeof(FileHeader), 1, f);
+        idx = 0;
+
+        while (fread(&c, sizeof(Categoria), 1, f) == 1) {
+            if (c.id == id && !c.ativo) {
+                c.ativo = 1;
+
+                long pos = sizeof(FileHeader) + (long)idx * sizeof(Categoria);
+                fseek(f, pos, SEEK_SET);
+                fwrite(&c, sizeof(Categoria), 1, f);
+
+                printf("Categoria ativada!\n");
+                fclose(f);
+                pauseAndContinue();
+                return;
+            }
+            idx++;
+        }
+
+        printf("ID invalido ou categoria ja ativa.\n");
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
+
+    // ---- Ativar todos ----
+    if (op == 2) {
+        rewind(f); fread(&h, sizeof(FileHeader), 1, f);
+        idx = 0;
+        int ativados = 0;
+
+        while (fread(&c, sizeof(Categoria), 1, f) == 1) {
+            if (!c.ativo) {
+                c.ativo = 1;
+
+                long pos = sizeof(FileHeader) + (long)idx * sizeof(Categoria);
+                fseek(f, pos, SEEK_SET);
+                fwrite(&c, sizeof(Categoria), 1, f);
+
+                fseek(f, pos + sizeof(Categoria), SEEK_SET);
+
+                ativados++;
+            }
+            idx++;
+        }
+
+        printf("%d categorias reativadas!\n", ativados);
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
+
+    printf("Opcao invalida.\n");
+    fclose(f);
+    pauseAndContinue();
+}
+
+
