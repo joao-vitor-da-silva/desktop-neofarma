@@ -6,7 +6,7 @@
 #include <ctype.h>
 #include <conio.h>
 #include <stdint.h>
-
+#include <time.h>
 /* ================== DEFINICOES GLOBAIS ================== */
 #define MAX_NOME       100
 #define MAX_CPF        20
@@ -84,17 +84,18 @@ typedef struct {
 /* Lote: controla validade, quantidade, preço por lote */
 typedef struct {
     int id;
-    int id_produto;                 /* FK -> Produto.id */
-    char codigo_lote[MAX_COD_LOTE]; /* código do lote */
+    int id_produto;                  // FK → Produto.id
+    char codigo_lote[MAX_COD_LOTE]; // Código do lote (ex: "ABC1234")
     Data data_fabricacao;
     Data data_validade;
-    int quantidade;                 /* quantidade atual no lote */
-    double preco_compra;            /* preço por unidade pago na compra */
-    double preco_venda;             /* preço por unidade deste lote (pode ser diferente do padrão) */
-    int em_promocao;                /* 0 = não, 1 = sim */
-    double desconto_percent;        /* 0..100 se em_promocao == 1 */
-    int ativo;
+    int quantidade;                 // Quantidade atual no lote
+    double preco_compra;            // Preço pago por unidade no lote
+    double preco_venda;             // Preço de venda por unidade do lote
+    int em_promocao;                // 0 = não, 1 = sim
+    double desconto_percent;        // % de desconto (se em_promocao = 1)
+    int ativo;                      // 1 = ativo, 0 = removido/inativo
 } Lote;
+
 
 /* Item usado nas estruturas de Venda/Compra */
 typedef struct {
@@ -159,17 +160,23 @@ int buscarClientePorId(int id, Cliente *out, long *index);
 
 /* Produtos & Lotes */
 void menuProdutos();
+int buscarProdutoPorId(int id, Produto *out, int *index);
 void cadastrarProduto();
 void editarProduto();
 void removerProduto();
 void listarProdutos();
+void listarAtivarProdutosInativos();
+
+
 void menuLotes();
 void cadastrarLote();
 void editarLote();
 void listarLotes();
 void descartarLote();
-int buscarLotePorId(int id, Lote *out, long *index);
-int remover_lote(const char *filename, int id);
+int buscarLotePorId(int id, Lote *out, int *index);
+void removerLote();
+void listarAtivarLotesInativos();
+int validarDatasLote(Data fabricacao, Data validade);
 
 /* Compras & Vendas */
 void menuComprasVendas();
@@ -189,6 +196,7 @@ void menuUtils();
 void menuTipos();
 void menuLaboratorios();
 void menuCategorias();
+
 
 /* Tipos CRUD */
 void cadastrarTipo();
@@ -224,6 +232,8 @@ int categoriaExistePorNome(const char *nome);
 void limparBuffer();
 int lerInt(const char *prompt);
 void lerString(const char *prompt, char *out, int maxlen);
+int validarDataStruct(Data d);
+void lerData(const char *mensagem, Data *saida);
 void pauseAndContinue();
 
 /* ----------------- Implementação das utilitárias do menu ----------------- */
@@ -252,6 +262,117 @@ void lerString(const char *prompt, char *out, int maxlen) {
     size_t ln = strlen(out);
     if (ln > 0 && out[ln-1] == '\n') out[ln-1] = '\0';
 }
+
+/* Ano bissexto */
+int anoBissexto(int ano) {
+    return ( (ano % 4 == 0 && ano % 100 != 0) || (ano % 400 == 0) );
+}
+
+/* Quantidade de dias no mês */
+int diasNoMes(int mes, int ano) {
+    if (mes < 1 || mes > 12) return 0;
+
+    int dias[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    if (mes == 2 && anoBissexto(ano)) return 29;
+
+    return dias[mes - 1];
+}
+
+/* Verifica se uma Data existe */
+int dataValida(Data d) {
+    if (d.ano < 1900 || d.ano > 2100) return 0;
+    if (d.mes < 1 || d.mes > 12) return 0;
+    if (d.dia < 1 || d.dia > diasNoMes(d.mes, d.ano)) return 0;
+    return 1;
+}
+
+/* Comparar datas  
+   - retorna -1 se a < b  
+   - retorna  0 se igual  
+   - retorna  1 se a > b  
+*/
+int compararDatas(Data a, Data b) {
+    if (a.ano < b.ano) return -1;
+    if (a.ano > b.ano) return 1;
+
+    if (a.mes < b.mes) return -1;
+    if (a.mes > b.mes) return 1;
+
+    if (a.dia < b.dia) return -1;
+    if (a.dia > b.dia) return 1;
+
+    return 0;
+}
+
+/* Pega a data de hoje */
+Data dataDeHoje() {
+    time_t agora = time(NULL);
+    struct tm *p = localtime(&agora);
+
+    Data d;
+    d.dia = p->tm_mday;
+    d.mes = p->tm_mon + 1;
+    d.ano = p->tm_year + 1900;
+    return d;
+}
+
+void lerData(const char *mensagem, Data *saida) {
+    char entrada[32];
+    int d, m, a;
+
+    while (1) {
+
+        printf("%s (DD/MM/AAAA): ", mensagem);
+        fgets(entrada, sizeof(entrada), stdin);
+
+        /* remover \n */
+        entrada[strcspn(entrada, "\n")] = '\0';
+
+        /* checar formato via sscanf */
+        if (sscanf(entrada, "%d/%d/%d", &d, &m, &a) != 3) {
+            printf("Formato invalido! Use DD/MM/AAAA.\n");
+            continue;
+        }
+
+        /* preencher struct temporariamente */
+        Data temp;
+        temp.dia = d;
+        temp.mes = m;
+        temp.ano = a;
+
+        /* validar data real */
+        if (!dataValida(temp)) {
+            printf("Data inexistente! Verifique o dia/mes/ano.\n");
+            continue;
+        }
+
+        /* se chegou aqui, está tudo certo */
+        *saida = temp;
+        return;
+    }
+}
+
+int lerDataOpcional(const char *prompt, Data *out) {
+    char linha[50];
+    printf("%s", prompt);
+
+    fgets(linha, sizeof(linha), stdin);
+
+    /* ENTER → mantém valor */
+    if (linha[0] == '\n')
+        return 0;
+
+    int d, m, a;
+    if (sscanf(linha, "%d/%d/%d", &d, &m, &a) == 3) {
+        out->dia = d; out->mes = m; out->ano = a;
+        return 1; /* nova data informada */
+    }
+
+    printf("Formato invalido. Ignorando e mantendo valor atual.\n");
+    return 0;
+}
+
+
 
 void pauseAndContinue() {
     printf("\nPressione ENTER para continuar...");
@@ -326,9 +447,9 @@ void menuPrincipal() {
 
 /* Clientes */
 void menuClientes() {
-    system("cls");
     int op;
     while (1) {
+        system("cls");
         printf("\n=============================================\n");
         printf("      SISTEMA DE GESTAO - FARMACIA (PI)\n");
         printf("=============================================\n");
@@ -352,9 +473,9 @@ void menuClientes() {
 
 /* Produtos */
 void menuProdutos() {
-    system("cls");
     int op;
     while (1) {
+        system("cls");
         printf("\n=============================================\n");
         printf("      SISTEMA DE GESTAO - FARMACIA (PI)\n");
         printf("=============================================\n");
@@ -363,6 +484,7 @@ void menuProdutos() {
         printf("2) Editar produto\n");
         printf("3) Remover produto\n");
         printf("4) Listar produtos\n");
+        printf("5) Listar e restaurar [Registros Inativos]\n");
         printf("0) Voltar\n");
         op = lerInt("Opcao: ");
         switch (op) {
@@ -370,6 +492,7 @@ void menuProdutos() {
             case 2: editarProduto(); break;
             case 3: removerProduto(); break;
             case 4: listarProdutos(); pauseAndContinue(); break;
+            case 5: listarAtivarProdutosInativos(); break;
             case 0: return;
             default: printf("Opcao invalida.\n"); pauseAndContinue(); break;
         }
@@ -378,9 +501,9 @@ void menuProdutos() {
 
 /* Lotes */
 void menuLotes() {
-    system("cls");
     int op;
     while (1) {
+        system("cls");
         printf("\n=============================================\n");
         printf("      SISTEMA DE GESTAO - FARMACIA (PI)\n");
         printf("=============================================\n");
@@ -389,14 +512,17 @@ void menuLotes() {
         printf("2) Editar lote\n");
         printf("3) Descartar lote (parcial ou total)\n");
         printf("4) Listar lotes\n");
+        printf("5) Remover lote\n");
+        printf("6) Listar e restaurar [Registros Inativos]\n");
         printf("0) Voltar\n");
         op = lerInt("Opcao: ");
         switch (op) {
             case 1: cadastrarLote(); break;
             case 2: editarLote(); break;
             case 3: descartarLote(); break;
-            case 4: listarLotes(); pauseAndContinue(); break;
-            case 0: return;
+            case 4: listarLotes(); break;
+            case 5: removerLote(); break;
+            case 6: listarAtivarLotesInativos();break;
             default: printf("Opcao invalida.\n"); pauseAndContinue(); break;
         }
     }
@@ -404,9 +530,9 @@ void menuLotes() {
 
 /* Compras e Vendas: submenu combinado */
 void menuComprasVendas() {
-    system("cls");
     int op;
     while (1) {
+        system("cls");
         printf("\n=============================================\n");
         printf("      SISTEMA DE GESTAO - FARMACIA (PI)\n");
         printf("=============================================\n");
@@ -430,9 +556,9 @@ void menuComprasVendas() {
 
 /* Relatórios */
 void menuRelatorios() {
-    system("cls");
     int op;
     while (1) {
+        system("cls");
         printf("\n=============================================\n");
         printf("      SISTEMA DE GESTAO - FARMACIA (PI)\n");
         printf("=============================================\n");
@@ -465,6 +591,7 @@ void menuUtils() {
         printf("1) Tipos de Produto\n");
         printf("2) Laboratorios\n");
         printf("3) Categorias\n");
+        
         printf("0) Voltar ao menu principal\n");
         printf("-----------------------------------------------\n");
 
@@ -474,6 +601,7 @@ void menuUtils() {
             case 1: menuTipos(); break;
             case 2: menuLaboratorios(); break;
             case 3: menuCategorias(); break;
+            
             case 0: return;
             default: printf("Opcao invalida!\n"); pauseAndContinue(); break;
         }
@@ -562,7 +690,7 @@ int main(void) {
     printf("      SISTEMA DE GESTAO - FARMACIA (PI)\n");
     printf("=============================================\n");
     printf("Inicializando sistema...\n");
-    system("pause");
+    pauseAndContinue();
     menuPrincipal();
     return 0;
 }
@@ -624,18 +752,975 @@ void removerCliente()   { printf("[STUB] removerCliente()\n"); }
 void listarClientes()   { printf("[STUB] listarClientes()\n"); }
 int buscarClientePorId(int id, Cliente *out, long *index) { (void)id; (void)out; (void)index; return 1; }
 
-/* Produtos & Lotes */
-void cadastrarProduto() { printf("[STUB] cadastrarProduto()\n"); }
-void editarProduto()    { printf("[STUB] editarProduto()\n"); }
-void removerProduto()   { printf("[STUB] removerProduto()\n"); }
-void listarProdutos()   { printf("[STUB] listarProdutos()\n"); }
+/* Produtos */
+void cadastrarProduto() {
+    Produto p;
+    printf("\n=== CADASTRAR PRODUTO ===\n");
 
-void cadastrarLote()    { printf("[STUB] cadastrarLote()\n"); }
-void editarLote()       { printf("[STUB] editarLote()\n"); }
-void listarLotes()      { printf("[STUB] listarLotes()\n"); }
+    /* ------------------ Validar existência mínima ------------------ */
+    FileHeader hTipos, hLabs, hCats;
+
+    read_header(ARQ_TIPOS, &hTipos);
+    read_header(ARQ_LABS, &hLabs);
+    read_header(ARQ_CATS, &hCats);
+
+    if (hTipos.count == 0) {
+        printf("ERRO: Nenhum Tipo cadastrado!\n");
+        pauseAndContinue();
+        return;
+    }
+    if (hLabs.count == 0) {
+        printf("ERRO: Nenhum Laboratorio cadastrado!\n");
+        pauseAndContinue();
+        return;
+    }
+    if (hCats.count == 0) {
+        printf("ERRO: Nenhuma Categoria cadastrada!\n");
+        pauseAndContinue();
+        return;
+    }
+
+    /* ------------------ Dados gerais ------------------ */
+    lerString("Nome do produto: ", p.nome, MAX_NOME);
+    lerString("Descricao: ", p.descricao, MAX_DESC);
+
+
+    /* ============================================================
+       ====================== ESCOLHER TIPO ========================
+       ============================================================ */
+
+    int id_tipo = -1;
+    TipoProduto t;
+    char resp;
+
+    printf("\nDeseja visualizar a lista de Tipos? (S/N): ");
+    scanf(" %c", &resp);
+    limparBuffer();
+
+    if (resp == 'S' || resp == 's') {
+        system("cls");
+        listarTipos();
+    }
+
+    while (1) {
+        id_tipo = lerInt("ID do Tipo (0 = cancelar): ");
+
+        if (id_tipo == 0) {
+            printf("Cadastro cancelado.\n");
+            return;
+        }
+
+        if (buscarTipoPorId(id_tipo, &t, NULL) == 0)
+            break;
+
+        printf("Tipo inexistente!\n");
+
+        printf("Deseja visualizar a lista novamente? (S/N): ");
+        scanf(" %c", &resp);
+        limparBuffer();
+
+        if (resp == 'S' || resp == 's') {
+            system("cls");
+            listarTipos();
+        }
+    }
+
+    p.id_tipo = id_tipo;
+
+
+    /* ============================================================
+       ==================== ESCOLHER LABORATORIO ==================
+       ============================================================ */
+
+    int id_lab = -1;
+    Laboratorio L;
+
+    printf("\nDeseja visualizar a lista de Laboratorios? (S/N): ");
+    scanf(" %c", &resp);
+    limparBuffer();
+
+    if (resp == 'S' || resp == 's') {
+        system("cls");
+        listarLaboratorios();
+    }
+
+    while (1) {
+        id_lab = lerInt("ID do Laboratorio (0 = cancelar): ");
+
+        if (id_lab == 0) {
+            printf("Cadastro cancelado.\n");
+            return;
+        }
+
+        if (buscarLaboratorioPorId(id_lab, &L, NULL) == 0)
+            break;
+
+        printf("Laboratorio inexistente!\n");
+
+        printf("Deseja visualizar a lista novamente? (S/N): ");
+        scanf(" %c", &resp);
+        limparBuffer();
+
+        if (resp == 'S' || resp == 's') {
+            system("cls");
+            listarLaboratorios();
+        }
+    }
+
+    p.id_laboratorio = id_lab;
+
+
+    /* ============================================================
+       ===================== ESCOLHER CATEGORIA ====================
+       ============================================================ */
+
+    int id_cat = -1;
+    Categoria C;
+
+    printf("\nDeseja visualizar a lista de Categorias? (S/N): ");
+    scanf(" %c", &resp);
+    limparBuffer();
+
+    if (resp == 'S' || resp == 's') {
+        system("cls");
+        listarCategorias();
+    }
+
+    while (1) {
+        id_cat = lerInt("ID da Categoria (0 = cancelar): ");
+
+        if (id_cat == 0) {
+            printf("Cadastro cancelado.\n");
+            return;
+        }
+
+        if (buscarCategoriaPorId(id_cat, &C, NULL) == 0)
+            break;
+
+        printf("Categoria inexistente!\n");
+
+        printf("Deseja visualizar a lista novamente? (S/N): ");
+        scanf(" %c", &resp);
+        limparBuffer();
+
+        if (resp == 'S' || resp == 's') {
+            system("cls");
+            listarCategorias();
+        }
+    }
+
+    p.id_categoria = id_cat;
+
+
+    /* ------------------ Preço ------------------ */
+    char buff[50];
+    lerString("Preco de venda padrao: ", buff, sizeof(buff));
+    p.preco_venda_padrao = atof(buff);
+    p.ativo = 1;
+
+
+    /* ------------------ Gravar ------------------ */
+    FileHeader h;
+    read_header(ARQ_PRODUTOS, &h);
+
+    p.id = h.last_id++;
+    h.count++;
+
+    write_header(ARQ_PRODUTOS, &h);
+
+    FILE *f = fopen(ARQ_PRODUTOS, "ab");
+    fwrite(&p, sizeof(Produto), 1, f);
+    fclose(f);
+
+    printf("Produto cadastrado com ID %d!\n", p.id);
+    pauseAndContinue();
+}
+
+int buscarProdutoPorId(int id, Produto *out, int *index) {
+    FILE *f = fopen(ARQ_PRODUTOS, "rb");
+    if (!f) return 1;
+
+    FileHeader h;
+    fread(&h, sizeof(FileHeader), 1, f);
+
+    Produto p;
+    int idx = 0;
+
+    while (fread(&p, sizeof(Produto), 1, f) == 1) {
+        if (p.id == id && p.ativo) {
+            if (out) *out = p;
+            if (index) *index = idx;
+            fclose(f);
+            return 0;
+        }
+        idx++;
+    }
+
+    fclose(f);
+    return 1;
+}
+
+void editarProduto() {
+    int id = lerInt("ID do produto que deseja editar: ");
+
+    Produto p;
+    int idx;
+
+    if (buscarProdutoPorId(id, &p, &idx)) {
+        printf("Produto nao encontrado!\n");
+        return;
+    }
+
+    printf("\n--- PRODUTO ENCONTRADO ---\n");
+    printf("Nome: %s\n", p.nome);
+    printf("Descricao: %s\n", p.descricao);
+    printf("Preco padrao: %.2f\n", p.preco_venda_padrao);
+
+    printf("\nConfirmar edicao? (S/N): ");
+    char r;
+    scanf(" %c", &r);
+    limparBuffer();
+    if (r != 'S' && r != 's') return;
+
+    // -------- Campos opcionais (ENTER mantém) --------
+    char buff[MAX_DESC];
+
+    lerString("Novo nome: ", buff, MAX_NOME);
+    if (strlen(buff) > 0) strcpy(p.nome, buff);
+
+    lerString("Nova descricao: ", buff, MAX_DESC);
+    if (strlen(buff) > 0) strcpy(p.descricao, buff);
+
+    lerString("Novo preco padrao: ", buff, MAX_DESC);
+    if (strlen(buff) > 0) p.preco_venda_padrao = atof(buff);
+
+    // -------- Salvar --------
+    FILE *f = fopen(ARQ_PRODUTOS, "r+b");
+
+    long offset = sizeof(FileHeader) + idx * sizeof(Produto);
+    fseek(f, offset, SEEK_SET);
+    fwrite(&p, sizeof(Produto), 1, f);
+
+    fclose(f);
+
+    printf("Produto atualizado!\n");
+}
+
+void removerProduto() {
+    int id = lerInt("ID do produto que deseja remover: ");
+
+    Produto p;
+    int idx;
+
+    if (buscarProdutoPorId(id, &p, &idx)) {
+        printf("Produto nao encontrado!\n");
+        return;
+    }
+
+    printf("Confirma remover (inativar) o produto '%s'? (S/N): ", p.nome);
+    char r;
+    scanf(" %c", &r);
+    limparBuffer();
+
+    if (r != 'S' && r != 's') return;
+
+    p.ativo = 0;
+
+    FILE *f = fopen(ARQ_PRODUTOS, "r+b");
+    long offset = sizeof(FileHeader) + idx * sizeof(Produto);
+    fseek(f, offset, SEEK_SET);
+    fwrite(&p, sizeof(Produto), 1, f);
+    fclose(f);
+
+    printf("Produto removido.\n");
+}
+
+void listarProdutos() {
+    FILE *f = fopen(ARQ_PRODUTOS, "rb");
+    if (!f) {
+        printf("Erro ao abrir arquivo de produtos.\n");
+        pauseAndContinue();
+        return;
+    }
+
+    FileHeader h;
+    if (fread(&h, sizeof(FileHeader), 1, f) != 1) {
+        printf("Arquivo de produtos corrompido.\n");
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
+
+    Produto v[h.count];
+    int q = 0;
+
+    Produto p;
+    while (fread(&p, sizeof(Produto), 1, f) == 1) {
+        if (p.ativo)
+            v[q++] = p;
+    }
+
+    fclose(f);
+
+    /* ---- Bubble Sort por nome ---- */
+    for (int i = 0; i < q - 1; i++) {
+        for (int j = 0; j < q - 1 - i; j++) {
+            if (strcmp(v[j].nome, v[j+1].nome) > 0) {
+                Produto tmp = v[j];
+                v[j] = v[j+1];
+                v[j+1] = tmp;
+            }
+        }
+    }
+
+    /* ---- Cabeçalho ---- */
+    printf("\n================================ LISTA DE PRODUTOS ================================\n");
+    printf("%-5s | %-25s | %-20s | %-20s | %-20s | %-10s\n",
+           "ID", "Produto", "Tipo", "Laboratorio", "Categoria", "Preco");
+    printf("----------------------------------------------------------------------------------\n");
+
+    /* ---- Linhas ---- */
+    for (int i = 0; i < q; i++) {
+
+        /* Buscar nomes */
+        TipoProduto t;  
+        Laboratorio L;
+        Categoria C;
+
+        char nomeTipo[25] = "N/D";
+        char nomeLab[25]  = "N/D";
+        char nomeCat[25]  = "N/D";
+
+        if (!buscarTipoPorId(v[i].id_tipo, &t, NULL))
+            strncpy(nomeTipo, t.nome, 24);
+
+        if (!buscarLaboratorioPorId(v[i].id_laboratorio, &L, NULL))
+            strncpy(nomeLab, L.nome, 24);
+
+        if (!buscarCategoriaPorId(v[i].id_categoria, &C, NULL))
+            strncpy(nomeCat, C.nome, 24);
+
+        printf("%-5d | %-25s | %-20s | %-20s | %-20s | %-10.2f\n",
+               v[i].id,
+               v[i].nome,
+               nomeTipo,
+               nomeLab,
+               nomeCat,
+               v[i].preco_venda_padrao
+        );
+    }
+
+    pauseAndContinue();
+}
+
+void listarAtivarProdutosInativos() {
+    FILE *f = fopen(ARQ_PRODUTOS, "r+b");
+    if (!f) {
+        printf("Erro ao abrir arquivo de produtos.\n");
+        pauseAndContinue();
+        return;
+    }
+
+    FileHeader h;
+    if (fread(&h, sizeof(FileHeader), 1, f) != 1) {
+        printf("Arquivo de produtos corrompido ou vazio.\n");
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
+
+    Produto p;
+    int idx = 0;
+    int encontrou = 0;
+
+    printf("\n=========== PRODUTOS INATIVOS ===========\n");
+
+    /* LISTAR TODOS OS INATIVOS */
+    while (fread(&p, sizeof(Produto), 1, f) == 1) {
+        if (p.ativo == 0) {
+            encontrou = 1;
+            printf("ID: %d | Nome: %s | Preco: %.2f\n",
+                   p.id, p.nome, p.preco_venda_padrao);
+        }
+        idx++;
+    }
+
+    if (!encontrou) {
+        printf("Nenhum produto desativado encontrado.\n");
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
+
+    printf("\nO que deseja fazer?\n");
+    printf("1) Ativar UM produto específico\n");
+    printf("2) Ativar TODOS os produtos inativos\n");
+    printf("0) Voltar sem ativar nada\n");
+
+    int op = lerInt("Opcao: ");
+
+    /* ----------- VOLTAR ----------- */
+    if (op == 0) {
+        fclose(f);
+        return;
+    }
+
+    /* ----------- ATIVAR UM ESPECÍFICO ----------- */
+    if (op == 1) {
+        int id = lerInt("Informe o ID do produto a ativar: ");
+
+        rewind(f);
+        fread(&h, sizeof(FileHeader), 1, f);
+
+        idx = 0;
+
+        while (fread(&p, sizeof(Produto), 1, f) == 1) {
+
+            if (p.id == id && p.ativo == 0) {
+                p.ativo = 1;
+
+                int pos = sizeof(FileHeader) + (int)idx * sizeof(Produto);
+
+                fseek(f, pos, SEEK_SET);
+                fwrite(&p, sizeof(Produto), 1, f);
+
+                printf("Produto '%s' (ID %d) reativado com sucesso!\n", p.nome, p.id);
+                fclose(f);
+                pauseAndContinue();
+                return;
+            }
+
+            idx++;
+        }
+
+        printf("ID informado nao corresponde a um produto inativo.\n");
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
+
+    /* ----------- ATIVAR TODOS ----------- */
+    if (op == 2) {
+        rewind(f);
+        fread(&h, sizeof(FileHeader), 1, f);
+
+        idx = 0;
+        int ativados = 0;
+
+        while (fread(&p, sizeof(Produto), 1, f) == 1) {
+
+            int posRegistro = sizeof(FileHeader) + (int)idx * sizeof(Produto);
+
+            if (p.ativo == 0) {
+                p.ativo = 1;
+
+                fseek(f, posRegistro, SEEK_SET);
+                fwrite(&p, sizeof(Produto), 1, f);
+
+                /* Voltar ao fluxo do fread */
+                fseek(f, posRegistro + sizeof(Produto), SEEK_SET);
+
+                ativados++;
+            }
+
+            idx++;
+        }
+
+        printf("%d produto(s) reativado(s) com sucesso!\n", ativados);
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
+
+    printf("Opcao invalida!\n");
+    fclose(f);
+    pauseAndContinue();
+}
+
+/* Lotes */
+void cadastrarLote() {
+    Lote L;
+    printf("\n=== CADASTRAR LOTE ===\n");
+
+    /* ------------------- 1) Verifica se existem produtos ------------------- */
+    FileHeader hProd;
+    read_header(ARQ_PRODUTOS, &hProd);
+
+    if (hProd.count == 0) {
+        printf("ERRO: Nenhum produto cadastrado!\n");
+        pauseAndContinue();
+        return;
+    }
+
+    /* ------------------- 2) Escolher Produto ------------------- */
+    printf("Deseja ver a lista de produtos? <S/N>: ");
+    char resp;
+    scanf(" %c", &resp);
+    limparBuffer();
+    if (toupper(resp) == 'S')
+        listarProdutos();
+
+    Produto P;
+    int idProd = -1;
+
+    while (1) {
+
+        idProd = lerInt("ID do produto (0 cancela): ");
+
+        if (idProd == 0) {
+            printf("Cadastro cancelado.\n");
+            return;
+        }
+
+        if (!buscarProdutoPorId(idProd, &P, NULL)) {
+            L.id_produto = idProd;
+            break;   /* válido, sai do loop */
+        }
+
+        printf("Produto invalido. Deseja ver a lista novamente? <S/N>: ");
+        char op;
+        scanf(" %c", &op);
+        limparBuffer();
+
+        if (toupper(op) == 'S')
+            listarProdutos();
+    }
+
+    /* ------------------- 3) Código do lote ------------------- */
+    lerString("Codigo do lote: ", L.codigo_lote, MAX_COD_LOTE);
+
+    /* ------------------- 4) Datas com validação ------------------- */
+    int codErro;
+
+    do {
+        lerData("Data de fabricacao", &L.data_fabricacao);
+        lerData("Data de validade", &L.data_validade);
+
+        codErro = validarDatasLote(L.data_fabricacao, L.data_validade);
+        if (codErro != 0) {
+            switch (codErro)
+            {
+            case 1: printf("\nData invalida !\n");break;
+            case 2: printf("\nFabricação não pode estar no futuro!\n");break;
+            case 3: printf("\nValidade deve ser maior que fabricação!\n");break;
+            case 4: printf("\nValidade não pode ser menor que data atual!\n");break;
+            default:
+                break;
+            }
+                                
+            printf("Digite novamente as datas.\n\n");
+        }
+
+    } while (codErro != 0);
+
+    /* ------------------- 5) Quantidade ------------------- */
+    L.quantidade = lerInt("Quantidade inicial: ");
+    if (L.quantidade < 0) L.quantidade = 0;
+
+    /* ------------------- 6) Preços ------------------- */
+    char buf[50];
+
+    lerString("Preco de compra: ", buf, sizeof(buf));
+    L.preco_compra = atof(buf);
+
+    lerString("Preco de venda: ", buf, sizeof(buf));
+    L.preco_venda = atof(buf);
+
+    /* ------------------- 7) Promoção ------------------- */
+    L.em_promocao = lerInt("Esta em promocao? (1=Sim, 0=Nao): ");
+    if (L.em_promocao == 1) {
+        lerString("Percentual de desconto (%): ", buf, sizeof(buf));
+        L.desconto_percent = atof(buf);
+
+        if (L.desconto_percent < 0)   L.desconto_percent = 0;
+        if (L.desconto_percent > 100) L.desconto_percent = 100;
+
+    } else {
+        L.em_promocao = 0;
+        L.desconto_percent = 0;
+    }
+
+    L.ativo = 1;
+
+    /* ------------------- 8) Gravação ------------------- */
+    FileHeader h;
+    read_header(ARQ_LOTES, &h);
+
+    L.id = h.last_id++;
+    h.count++;
+
+    write_header(ARQ_LOTES, &h);
+
+    FILE *f = fopen(ARQ_LOTES, "ab");
+    fwrite(&L, sizeof(Lote), 1, f);
+    fclose(f);
+
+    printf("Lote cadastrado com ID %d!\n", L.id);
+    pauseAndContinue();
+}
+
+void editarLote() {
+    int id = lerInt("ID do lote a editar: ");
+
+    Lote L;
+    int idx;
+
+    if (buscarLotePorId(id, &L, &idx)) {
+        printf("Lote nao encontrado!\n");
+        pauseAndContinue();
+        return;
+    }
+
+    printf("\n=== EDITANDO LOTE ===\n");
+    printf("Produto ID: %d\n", L.id_produto);
+    printf("Codigo atual: %s\n", L.codigo_lote);
+    printf("Quantidade atual: %d\n", L.quantidade);
+    printf("Fabricacao atual: %02d/%02d/%04d\n",
+           L.data_fabricacao.dia, L.data_fabricacao.mes, L.data_fabricacao.ano);
+    printf("Validade atual:   %02d/%02d/%04d\n",
+           L.data_validade.dia, L.data_validade.mes, L.data_validade.ano);
+    printf("Preco compra: %.2f\n", L.preco_compra);
+    printf("Preco venda : %.2f\n", L.preco_venda);
+    printf("Desconto: %.2f%%\n", L.desconto_percent);
+    printf("\n(ENTER mantém valor)\n\n");
+
+    char buf[100];
+
+    /* ------------------ Código ------------------ */
+    lerString("Novo codigo: ", buf, sizeof(buf));
+    if (strlen(buf) > 0)
+        strcpy(L.codigo_lote, buf);
+
+    /* ------------------ Quantidade ------------------ */
+    lerString("Nova quantidade: ", buf, sizeof(buf));
+    if (strlen(buf) > 0) {
+        int q = atoi(buf);
+        if (q >= 0) L.quantidade = q;
+    }
+
+    /* ------------------ Data de fabricação ------------------ */
+    Data novaFab;
+    int hasFab = lerDataOpcional("Nova data de fabricacao (ENTER = atual): ", &novaFab);
+
+    /* ------------------ Data de validade ------------------ */
+    Data novaVal;
+    int hasVal = lerDataOpcional("Nova data de validade (ENTER = atual): ", &novaVal);
+
+    /* Se usuário digitou alguma, validar conjunto */
+    if (hasFab || hasVal) {
+
+        Data fabFinal = hasFab ? novaFab : L.data_fabricacao;
+        Data valFinal = hasVal ? novaVal : L.data_validade;
+
+        char msg[100];
+        int codErro;
+
+        codErro = validarDatasLote(L.data_fabricacao, L.data_validade);
+        if (codErro != 0) {
+            switch (codErro)
+            {
+            case 1: printf("\nData invalida !\n");break;
+            case 2: printf("\nFabricação não pode estar no futuro!\n");break;
+            case 3: printf("\nValidade deve ser maior que fabricação!\n");break;
+            case 4: printf("\nValidade não pode ser menor que data atual!\n");break;
+            default:
+                break;
+            }
+                                
+            printf("Digite novamente as datas.\n\n");
+        }
+
+        /* Datas válidas → aplicar */
+        L.data_fabricacao = fabFinal;
+        L.data_validade = valFinal;
+    }
+
+    /* ------------------ Preço compra ------------------ */
+    lerString("Novo preco de compra: ", buf, sizeof(buf));
+    if (strlen(buf) > 0) {
+        double x = atof(buf);
+        if (x >= 0) L.preco_compra = x;
+    }
+
+    /* ------------------ Preço venda ------------------ */
+    lerString("Novo preco de venda: ", buf, sizeof(buf));
+    if (strlen(buf) > 0) {
+        double x = atof(buf);
+        if (x >= 0) L.preco_venda = x;
+    }
+
+    /* ------------------ Desconto / Promoção ------------------ */
+    lerString("Novo desconto (%): ", buf, sizeof(buf));
+    if (strlen(buf) > 0) {
+        double d = atof(buf);
+        if (d < 0) d = 0;
+        if (d > 100) d = 100;
+        L.desconto_percent = d;
+        L.em_promocao = (d > 0);
+    }
+
+    /* ------------------ Atualizar no arquivo ------------------ */
+    FILE *f = fopen(ARQ_LOTES, "r+b");
+    if (!f) {
+        printf("ERRO ao abrir arquivo de lotes!\n");
+        pauseAndContinue();
+        return;
+    }
+
+    long pos = sizeof(FileHeader) + (long)idx * sizeof(Lote);
+    fseek(f, pos, SEEK_SET);
+    fwrite(&L, sizeof(Lote), 1, f);
+    fclose(f);
+
+    printf("\nLote atualizado com sucesso!\n");
+    pauseAndContinue();
+}
+
+void listarLotes() {
+    FILE *f = fopen(ARQ_LOTES, "rb");
+    if (!f) {
+        printf("Nenhum lote cadastrado.\n");
+        pauseAndContinue();
+        return;
+    }
+
+    FileHeader h;
+    fread(&h, sizeof(FileHeader), 1, f);
+
+    Lote L;
+    Produto P;
+
+    printf("\n=== LISTA DE LOTES ===\n");
+    printf("%-5s %-20s %-12s %-12s %-10s %-10s %-5s\n",
+           "ID", "Produto", "Fabricacao", "Validade", "Qtd", "P.Venda", "%Desc");
+
+    while (fread(&L, sizeof(Lote), 1, f) == 1) {
+
+        if (!L.ativo) continue;
+
+        if (buscarProdutoPorId(L.id_produto, &P, NULL) != 0)
+            continue;
+
+        printf("%-5d %-20s %02d/%02d/%04d %02d/%02d/%04d %-10d %-10.2f %-5.1f\n",
+               L.id, P.nome,
+               L.data_fabricacao.dia, L.data_fabricacao.mes, L.data_fabricacao.ano,
+               L.data_validade.dia, L.data_validade.mes, L.data_validade.ano,
+               L.quantidade,
+               L.preco_venda,
+               L.em_promocao ? L.desconto_percent : 0.0
+        );
+    }
+
+    fclose(f);
+    pauseAndContinue();
+}
+
 void descartarLote()    { printf("[STUB] descartarLote()\n"); }
-int buscarLotePorId(int id, Lote *out, long *index) { (void)id; (void)out; (void)index; return 1; }
-int remover_lote(const char *filename, int id) { (void)filename; (void)id; printf("[STUB] remover_lote()\n"); return 0; }
+
+int buscarLotePorId(int id, Lote *out, int *index) {
+    FILE *f = fopen(ARQ_LOTES, "rb");
+    if (!f) return 1;
+
+    fseek(f, sizeof(FileHeader), SEEK_SET);
+
+    Lote L;
+    int idx = 0;
+
+    while (fread(&L, sizeof(Lote), 1, f) == 1) {
+        if (L.id == id && L.ativo) {
+            if (out) *out = L;
+            if (index) *index = idx;
+            fclose(f);
+            return 0;
+        }
+        idx++;
+    }
+
+    fclose(f);
+    return 1;
+}
+
+void removerLote() {
+    int id = lerInt("ID do lote a remover: ");
+
+    Lote L;
+    int idx;
+
+    if (buscarLotePorId(id, &L, &idx)) {
+        printf("Lote nao encontrado!\n");
+        pauseAndContinue();
+        return;
+    }
+
+    printf("Deseja remover este lote? (S/N): ");
+    char r;
+    scanf(" %c", &r);
+    limparBuffer();
+
+    if (r != 'S' && r != 's') return;
+
+    L.ativo = 0;
+
+    FILE *f = fopen(ARQ_LOTES, "r+b");
+    long pos = sizeof(FileHeader) + idx * sizeof(Lote);
+    fseek(f, pos, SEEK_SET);
+    fwrite(&L, sizeof(Lote), 1, f);
+    fclose(f);
+
+    printf("Lote removido!\n");
+    pauseAndContinue();
+}
+
+void listarAtivarLotesInativos() {
+    FILE *f = fopen(ARQ_LOTES, "r+b");
+    if (!f) {
+        printf("Arquivo nao encontrado.\n");
+        pauseAndContinue();
+        return;
+    }
+
+    FileHeader h;
+    fread(&h, sizeof(FileHeader), 1, f);
+
+    Lote L;
+    int idx = 0;
+    int encontrou = 0;
+
+    printf("\n=== LOTES INATIVOS ===\n");
+
+    while (fread(&L, sizeof(Lote), 1, f) == 1) {
+        if (L.ativo == 0) {
+            encontrou = 1;
+            printf("ID %d | ProdID: %d | Qtd: %d\n", L.id, L.id_produto, L.quantidade);
+        }
+        idx++;
+    }
+
+    if (!encontrou) {
+        printf("Nenhum lote inativo.\n");
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
+
+    printf("\n1) Ativar um\n");
+    printf("2) Ativar todos\n");
+    printf("0) Voltar\n");
+
+    int op = lerInt("Opcao: ");
+
+    if (op == 0) { fclose(f); return; }
+
+    /* ================= ATIVAR UM ================= */
+    if (op == 1) {
+        int id = lerInt("ID do lote: ");
+
+        rewind(f);
+        fread(&h, sizeof(FileHeader), 1, f);
+
+        idx = 0;
+
+        while (fread(&L, sizeof(Lote), 1, f) == 1) {
+
+            if (L.id == id && L.ativo == 0) {
+                L.ativo = 1;
+
+                long pos = sizeof(FileHeader) + idx * sizeof(Lote);
+                fseek(f, pos, SEEK_SET);
+
+                fwrite(&L, sizeof(Lote), 1, f);
+                fflush(f);
+
+                printf("Lote reativado!\n");
+                fclose(f);
+                pauseAndContinue();
+                return;
+            }
+
+            idx++;
+        }
+
+        printf("ID nao pertence a lote inativo.\n");
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
+
+    /* ================= ATIVAR TODOS ================= */
+    if (op == 2) {
+
+        rewind(f);
+        fread(&h, sizeof(FileHeader), 1, f);
+
+        idx = 0;
+        int ativados = 0;
+
+        while (fread(&L, sizeof(Lote), 1, f) == 1) {
+
+            if (!L.ativo) {
+
+                L.ativo = 1;
+
+                long pos = sizeof(FileHeader) + idx * sizeof(Lote);
+                fseek(f, pos, SEEK_SET);
+                fwrite(&L, sizeof(Lote), 1, f);
+                fflush(f);
+
+                /* VOLTA PARA POSIÇÃO DE LEITURA CORRETA (!)
+                   avança o cursor para depois do lote atual */
+                fseek(f, sizeof(FileHeader) + (idx+1) * sizeof(Lote), SEEK_SET);
+
+                ativados++;
+            }
+
+            idx++;
+        }
+
+        printf("%d lotes reativados!\n", ativados);
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
+
+    printf("Opcao invalida.\n");
+    fclose(f);
+    pauseAndContinue();
+}
+
+
+int validarDatasLote(Data fabricacao, Data validade) {
+
+    Data hoje = dataDeHoje();
+
+    /* 1) Verificar se datas existem */
+    if (!dataValida(fabricacao) || !dataValida(validade))
+        return 1;
+
+    /* 2) Fabricação não pode estar no futuro */
+    if (compararDatas(fabricacao, hoje) == 1)
+        return 2;
+
+    /* 3) Validade deve ser estritamente maior que fabricação */
+    if (compararDatas(validade, fabricacao) <= 0)
+        return 3;
+
+    /* 4) Validade não pode ser menor que hoje (lote já vencido) */
+    if (compararDatas(validade, hoje) == -1)
+        return 4;
+
+    return 0; /* tudo OK */
+}
+
+/* Mensagem de erro amigável */
+void mostrarErroDataLote(int erro) {
+    switch (erro) {
+        case 1: printf("Data invalida.\n"); break;
+        case 2: printf("A data de fabricacao nao pode estar no futuro.\n"); break;
+        case 3: printf("A data de validade deve ser maior que a data de fabricacao.\n"); break;
+        case 4: printf("A data de validade ja passou.\n"); break;
+        default: printf("Erro desconhecido.\n");
+    }
+}
 
 /* Compras & Vendas */
 void efetuarCompra()    { printf("[STUB] efetuarCompra()\n"); }
@@ -650,12 +1735,11 @@ void relatorioEstoqueBaixo()                { printf("[STUB] relatorioEstoqueBai
 
 /* Tipos */
 void cadastrarTipo() { 
-     TipoProduto t;
+    TipoProduto t;
 
     printf("\n--- CADASTRAR TIPO ---\n");
     lerString("Nome: ", t.nome, MAX_NOME);
 
-    // Verifica duplicação
     if (tipoJaExiste(t.nome)) {
         printf("ERRO: Ja existe um tipo cadastrado com esse nome!\n");
         pauseAndContinue();
@@ -670,12 +1754,15 @@ void cadastrarTipo() {
     t.id = h.last_id++;
     t.ativo = 1;
 
+    /* 👇 CORREÇÃO IMPORTANTE */
+    h.count++;   // <-- INCREMENTA O CONTADOR DE REGISTROS
+
     // ------------------ SALVAR ------------------
     FILE *f = fopen(ARQ_TIPOS, "r+b");
-    fseek(f, 0, SEEK_SET);//Posiciona o ponteiro no começo do arquivo.
+    fseek(f, 0, SEEK_SET);
     fwrite(&h, sizeof(FileHeader), 1, f);
 
-    fseek(f, 0, SEEK_END);//posiciona o ponteiro no final do arquivo.
+    fseek(f, 0, SEEK_END);
     fwrite(&t, sizeof(TipoProduto), 1, f);
 
     fclose(f);
@@ -683,6 +1770,7 @@ void cadastrarTipo() {
     printf("Tipo cadastrado com ID %d!\n", t.id);
     pauseAndContinue();
 }
+
 
 void editarTipo() {
     int id = lerInt("ID do tipo que deseja editar: ");
@@ -795,18 +1883,32 @@ void removerTipo() {
 
 void listarTipos() {
     FileHeader h;
-    read_header(ARQ_TIPOS, &h);
+    if (read_header(ARQ_TIPOS, &h) != 0) {
+        printf("Erro ao ler header de tipos.\n");
+        return;
+    }
 
     FILE *f = fopen(ARQ_TIPOS, "rb");
+    if (!f) {
+        printf("Arquivo de tipos nao encontrado.\n");
+        return;
+    }
+
     fseek(f, sizeof(FileHeader), SEEK_SET);
 
     TipoProduto t;
 
-    printf("\n--- LISTA DE TIPOS ---\n");
+    printf("\n==================== LISTA DE TIPOS ====================\n");
+    printf("%-5s | %-25s | %-40s\n", "ID", "Nome", "Descricao");
+    printf("--------------------------------------------------------------------------\n");
 
     while (fread(&t, sizeof(TipoProduto), 1, f) == 1) {
-        if (t.ativo)
-            printf("ID: %d | Nome: %s | Desc: %s\n", t.id, t.nome, t.descricao);
+        if (t.ativo) {
+            printf("%-5d | %-25s | %-40s\n",
+                   t.id,
+                   t.nome,
+                   t.descricao);
+        }
     }
 
     fclose(f);
@@ -1021,51 +2123,126 @@ void listarAtivarTiposInativos() {
 
 
 /* Laboratorios */
-void cadastrarLaboratorio() {
-    Laboratorio L;
+int validarCNPJ(const char *cnpj) {
+    int i, j, dig1, dig2, soma, peso;
+    char num[15]; // 14 dígitos + '\0'
 
-    printf("\n--- CADASTRAR LABORATORIO ---\n");
-    lerString("Nome: ", L.nome, MAX_NOME);
+    // remover tudo que nao for digito
+    int k = 0;
+    for (i = 0; cnpj[i] != '\0' && k < 14; i++) {
+        if (isdigit(cnpj[i])) {
+            num[k++] = cnpj[i];
+        }
+    }
+    num[k] = '\0';
 
-    /* Verifica duplicado por nome */
-    if (laboratorioJaExiste(L.nome)) {
-        printf("Erro: ja existe um laboratorio com este nome.\n");
-        return;
+    // precisa ter exatamente 14 dígitos
+    if (strlen(num) != 14) return 0;
+
+    // rejeitar CNPJs como 00000000000000, 11111111111111 etc.
+    for (i = 1; i < 14; i++) {
+        if (num[i] != num[0]) break;
+    }
+    if (i == 14) return 0;
+
+    // -------- Validação dígito 1 --------
+    soma = 0;
+    peso = 5;
+
+    for (i = 0; i < 12; i++) {
+        soma += (num[i] - '0') * peso;
+        peso--;
+        if (peso < 2) peso = 9;
     }
 
-    lerString("CNPJ: ", L.cnpj, MAX_CPF);
+    dig1 = 11 - (soma % 11);
+    if (dig1 > 9) dig1 = 0;
+
+    if (dig1 != (num[12] - '0')) return 0;
+
+    // -------- Validação dígito 2 --------
+    soma = 0;
+    peso = 6;
+
+    for (i = 0; i < 13; i++) {
+        soma += (num[i] - '0') * peso;
+        peso--;
+        if (peso < 2) peso = 9;
+    }
+
+    dig2 = 11 - (soma % 11);
+    if (dig2 > 9) dig2 = 0;
+
+    if (dig2 != (num[13] - '0')) return 0;
+
+    return 1; // CNPJ válido
+}
+
+int cnpjJaExiste(const char *cnpj) {
+    FILE *f = fopen(ARQ_LABS, "rb");
+    if (!f) return 0;
+
+    fseek(f, sizeof(FileHeader), SEEK_SET);
+
+    Laboratorio L;
+    while (fread(&L, sizeof(Laboratorio), 1, f) == 1) {
+        if (L.ativo && strcmp(L.cnpj, cnpj) == 0) {
+            fclose(f);
+            return 1;
+        }
+    }
+
+    fclose(f);
+    return 0;
+}
+
+void cadastrarLaboratorio() {
+    Laboratorio L;
+    printf("\n--- CADASTRAR LABORATORIO ---\n");
+
+    int nomeValido = 0;
+    while (!nomeValido) {
+        lerString("Nome: ", L.nome, MAX_NOME);
+        if (strlen(L.nome) == 0)
+            printf("Nome nao pode ser vazio!\n");
+        else if (laboratorioJaExiste(L.nome))
+            printf("Erro: ja existe um laboratorio com este nome.\n");
+        else
+            nomeValido = 1;
+    }
+
+    int cnpjValido = 0;
+    while (!cnpjValido) {
+        lerString("CNPJ: ", L.cnpj, MAX_CPF);
+
+        if (!validarCNPJ(L.cnpj))
+            printf("CNPJ INVALIDO!\n");
+        else if (cnpjJaExiste(L.cnpj))
+            printf("Erro: CNPJ já cadastrado.\n");
+        else
+            cnpjValido = 1;
+    }
+
     lerString("Descricao: ", L.descricao, MAX_DESC);
 
     FileHeader h;
-    if (read_header(ARQ_LABS, &h) != 0) {
-        /* se nao existir, cria arquivo com header inicial */
-        ensure_file_with_header(ARQ_LABS);
-        read_header(ARQ_LABS, &h);
-    }
+    read_header(ARQ_LABS, &h);
 
     L.id = h.last_id++;
     L.ativo = 1;
 
-    FILE *f = fopen(ARQ_LABS, "r+b");
-    if (!f) {
-        printf("Erro ao abrir arquivo de laboratorios para gravar.\n");
-        pauseAndContinue();
-        return;
-    }
+    h.count++;
 
-    /* atualiza header no arquivo */
-    fseek(f, 0, SEEK_SET);
-    fwrite(&h, sizeof(FileHeader), 1, f);
+    write_header(ARQ_LABS, &h);
 
-    /* grava novo registro no final */
-    fseek(f, 0, SEEK_END);
+    FILE *f = fopen(ARQ_LABS, "ab");
     fwrite(&L, sizeof(Laboratorio), 1, f);
-
     fclose(f);
 
-    printf("Laboratorio cadastrado com ID %d\n", L.id);
+    printf("Laboratorio cadastrado com ID %d!\n", L.id);
     pauseAndContinue();
 }
+
 
 void listarLaboratorios() {
     FILE *f = fopen(ARQ_LABS, "rb");
@@ -1077,14 +2254,22 @@ void listarLaboratorios() {
 
     fseek(f, sizeof(FileHeader), SEEK_SET);
     Laboratorio L;
-    printf("\n--- LABORATORIOS ATIVOS ---\n");
-    printf("ID | NOME\n");
-    printf("-----------------------------\n");
+
+    printf("\n================ LISTA DE LABORATORIOS ================\n");
+    printf("%-5s | %-25s | %-18s | %-30s\n", "ID", "Nome", "CNPJ", "Descricao");
+    printf("---------------------------------------------------------------"
+           "-------------------------------------------\n");
+
     while (fread(&L, sizeof(Laboratorio), 1, f) == 1) {
         if (L.ativo) {
-            printf("%3d | %s\n", L.id, L.nome);
+            printf("%-5d | %-25s | %-18s | %-30s\n",
+                   L.id,
+                   L.nome,
+                   L.cnpj,
+                   L.descricao);
         }
     }
+
     fclose(f);
 }
 
@@ -1415,25 +2600,47 @@ void cadastrarCategoria() {
     Categoria c;
 
     printf("\n--- CADASTRAR CATEGORIA ---\n");
-    lerString("Nome: ", c.nome, MAX_NOME);
-    lerString("Descricao: ", c.descricao, MAX_DESC);
 
-    if (categoriaExistePorNome(c.nome)) {
-        printf("Erro: Ja existe categoria com esse nome!\n");
-        pauseAndContinue();
-        return;
+    /* -------------------- Validar Nome -------------------- */
+    int nomeValido = 0;
+    while (!nomeValido) {
+        lerString("Nome: ", c.nome, MAX_NOME);
+
+        if (strlen(c.nome) == 0) {
+            printf("Erro: nome nao pode ser vazio!\n");
+        }
+        else if (categoriaExistePorNome(c.nome)) {
+            printf("Erro: ja existe categoria com esse nome!\n");
+        }
+        else {
+            nomeValido = 1;
+        }
     }
 
+    /* -------------------- Descricao -------------------- */
+    lerString("Descricao: ", c.descricao, MAX_DESC);
+
+    /* -------------------- Gravar -------------------- */
     FileHeader h;
     read_header(ARQ_CATS, &h);
 
     c.id = h.last_id++;
     c.ativo = 1;
 
+    h.count++;
+
     FILE *f = fopen(ARQ_CATS, "r+b");
+    if (!f) {
+        printf("Erro ao abrir arquivo de categorias.\n");
+        pauseAndContinue();
+        return;
+    }
+
+    /* Atualizar header */
     fseek(f, 0, SEEK_SET);
     fwrite(&h, sizeof(FileHeader), 1, f);
 
+    /* Gravar categoria no final */
     fseek(f, 0, SEEK_END);
     fwrite(&c, sizeof(Categoria), 1, f);
 
@@ -1442,6 +2649,7 @@ void cadastrarCategoria() {
     printf("Categoria cadastrada com ID %d!\n", c.id);
     pauseAndContinue();
 }
+
 
 int buscarCategoriaPorId(int id, Categoria *out, int *index) {
     FILE *f = fopen(ARQ_CATS, "rb");
@@ -1477,18 +2685,27 @@ void listarCategorias() {
     }
 
     FileHeader h;
-    fread(&h, sizeof(FileHeader), 1, f);
+    if (fread(&h, sizeof(FileHeader), 1, f) != 1) {
+        printf("Arquivo de categorias corrompido.\n");
+        fclose(f);
+        pauseAndContinue();
+        return;
+    }
 
     Categoria c;
     int encontrou = 0;
 
-    printf("\n--- LISTAGEM DE CATEGORIAS ---\n");
+    printf("\n==================== LISTA DE CATEGORIAS ====================\n");
+    printf("%-5s | %-25s | %-40s\n", "ID", "Nome", "Descricao");
+    printf("--------------------------------------------------------------------------\n");
 
     while (fread(&c, sizeof(Categoria), 1, f) == 1) {
         if (c.ativo) {
             encontrou = 1;
-            printf("ID: %d | Nome: %s | Descricao: %s\n",
-                   c.id, c.nome, c.descricao);
+            printf("%-5d | %-25s | %-40s\n",
+                   c.id,
+                   c.nome,
+                   c.descricao);
         }
     }
 
@@ -1693,5 +2910,4 @@ void listarAtivarCategoriasInativas() {
     fclose(f);
     pauseAndContinue();
 }
-
 
